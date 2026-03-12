@@ -12,7 +12,37 @@ import streamlit as st
 from openai import OpenAI
 
 
-st.set_page_config(page_title="Invoice Price Check + Match", page_icon="🧾", layout="wide")
+st.set_page_config(page_title="🐶 Price Check", page_icon="🐶", layout="wide")
+
+
+# ---------------------------
+# Styling
+# ---------------------------
+
+st.markdown(
+    """
+    <style>
+    div.stButton > button {
+        background-color: #28a745;
+        color: white;
+        border: none;
+        border-radius: 8px;
+        padding: 0.6rem 1.2rem;
+        font-weight: 600;
+    }
+    div.stButton > button:hover {
+        background-color: #218838;
+        color: white;
+    }
+    div.stButton > button:focus:not(:active) {
+        color: white;
+        border: none;
+        box-shadow: 0 0 0 0.2rem rgba(40, 167, 69, 0.25);
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 
 # ---------------------------
@@ -20,17 +50,10 @@ st.set_page_config(page_title="Invoice Price Check + Match", page_icon="🧾", l
 # ---------------------------
 
 def get_api_key() -> str:
-    key = ""
     try:
-        key = st.secrets.get("OPENAI_API_KEY", "")
+        return st.secrets["OPENAI_API_KEY"]
     except Exception:
-        key = ""
-
-    sidebar_key = st.sidebar.text_input("OpenAI API key", type="password")
-    if sidebar_key.strip():
-        key = sidebar_key.strip()
-
-    return key
+        return ""
 
 
 def normalize_code(value) -> str:
@@ -91,11 +114,6 @@ def format_eu_number(value: Optional[float], decimals: int = 2) -> str:
 
 
 def normalize_european_number(value: str) -> str:
-    """
-    Converts numeric-looking values to European decimal style:
-    - decimal point becomes comma
-    - thousand separators are removed when identifiable
-    """
     if value is None:
         return ""
 
@@ -182,10 +200,6 @@ def looks_numeric_column(column_name: str) -> bool:
     return any(keyword in name for keyword in numeric_keywords)
 
 
-def dataframe_to_tsv(df: pd.DataFrame, header: bool = True) -> str:
-    return df.to_csv(sep="\t", index=False, header=header)
-
-
 # ---------------------------
 # Part 1: PDF extraction
 # ---------------------------
@@ -247,20 +261,8 @@ def render_pdf_pages_to_base64_png(
     return images_base64
 
 
-def build_text_prompt(
-    columns: List[str],
-    include_filename: bool,
-    filename: str,
-    text: str,
-    table_preview: str
-) -> str:
+def build_text_prompt(columns: List[str], filename: str, text: str, table_preview: str) -> str:
     columns_text = ", ".join(columns)
-
-    filename_instruction = (
-        f'Include a column called "source_file" with value "{filename}" in every row.'
-        if include_filename
-        else "Do not include any source filename unless it is one of the requested columns."
-    )
 
     return f"""
 You are extracting structured row-based data from a PDF.
@@ -276,7 +278,9 @@ Rules:
 5. Return only JSON matching the required schema.
 6. Prices and amounts should be returned as plain numeric strings without currency symbols.
 7. For codes / IDs / article numbers, return only the relevant code value.
-8. {filename_instruction}
+
+Source filename:
+{filename}
 
 PDF text:
 {text[:25000]}
@@ -286,14 +290,8 @@ Extracted table preview:
 """.strip()
 
 
-def build_image_prompt(columns: List[str], include_filename: bool, filename: str) -> str:
+def build_image_prompt(columns: List[str], filename: str) -> str:
     columns_text = ", ".join(columns)
-
-    filename_instruction = (
-        f'Include a column called "source_file" with value "{filename}" in every row.'
-        if include_filename
-        else "Do not include any source filename unless it is one of the requested columns."
-    )
 
     return f"""
 You are extracting structured row-based data from scanned PDF page images.
@@ -310,7 +308,9 @@ Rules:
 6. Return only JSON matching the required schema.
 7. Prices and amounts should be returned as plain numeric strings without currency symbols.
 8. For codes / IDs / article numbers, return only the relevant code value.
-9. {filename_instruction}
+
+Source filename:
+{filename}
 """.strip()
 
 
@@ -355,17 +355,12 @@ def extract_rows_from_text_with_openai(
     client: OpenAI,
     model: str,
     columns: List[str],
-    include_filename: bool,
     filename: str,
     text: str,
     table_preview: str
 ) -> List[Dict[str, str]]:
-    final_columns = columns[:]
-    if include_filename and "source_file" not in final_columns:
-        final_columns = ["source_file"] + final_columns
-
-    prompt = build_text_prompt(final_columns, include_filename, filename, text, table_preview)
-    schema = build_schema(final_columns)
+    prompt = build_text_prompt(columns, filename, text, table_preview)
+    schema = build_schema(columns)
 
     response = client.responses.create(
         model=model,
@@ -391,23 +386,18 @@ def extract_rows_from_text_with_openai(
     if not isinstance(rows, list):
         raise ValueError("The model response does not contain a valid 'rows' list.")
 
-    return clean_rows(rows, final_columns)
+    return clean_rows(rows, columns)
 
 
 def extract_rows_from_images_with_openai(
     client: OpenAI,
     model: str,
     columns: List[str],
-    include_filename: bool,
     filename: str,
     images_base64: List[str]
 ) -> List[Dict[str, str]]:
-    final_columns = columns[:]
-    if include_filename and "source_file" not in final_columns:
-        final_columns = ["source_file"] + final_columns
-
-    schema = build_schema(final_columns)
-    prompt = build_image_prompt(final_columns, include_filename, filename)
+    schema = build_schema(columns)
+    prompt = build_image_prompt(columns, filename)
 
     content = [{"type": "input_text", "text": prompt}]
     for img_b64 in images_base64:
@@ -439,7 +429,7 @@ def extract_rows_from_images_with_openai(
     if not isinstance(rows, list):
         raise ValueError("The model response does not contain a valid 'rows' list.")
 
-    return clean_rows(rows, final_columns)
+    return clean_rows(rows, columns)
 
 
 # ---------------------------
@@ -560,8 +550,6 @@ def build_results(main_df: pd.DataFrame, ref_df: pd.DataFrame, tolerance: float)
     if df.shape[1] < 7:
         raise ValueError("Main table must contain at least 7 columns so A, B, D, F, G exist.")
 
-    # Fixed positional columns:
-    # A = 1st, B = 2nd, D = 4th, F = 6th, G = 7th
     col_a = df.columns[0]
     col_b = df.columns[1]
     col_d = df.columns[3]
@@ -684,18 +672,11 @@ def highlight_problem_rows(row):
 # UI
 # ---------------------------
 
-st.title("Invoice PDF → Extract → Match")
-st.write(
-    "Upload the original invoice PDF and the main Excel/CSV table. "
-    "The app extracts 2 columns from the PDF, then automatically uses those rows "
-    "as the reference table for matching against the uploaded main table."
-)
+st.title("🐶 Price Check")
 
 with st.sidebar:
     st.header("Settings")
-    api_key = get_api_key()
     model = st.text_input("Model", value="gpt-4.1-mini")
-    include_filename = st.checkbox("Include source filename in extracted preview", value=False)
     max_pages = st.number_input(
         "Max pages for scanned PDF fallback",
         min_value=1,
@@ -710,7 +691,7 @@ with st.sidebar:
         help="Two values are treated as equal if their difference is within this tolerance."
     )
 
-st.markdown("### 1. Upload invoice PDF")
+st.markdown("### Upload invoice PDF")
 pdf_file = st.file_uploader(
     "Invoice PDF",
     type=["pdf"],
@@ -718,7 +699,7 @@ pdf_file = st.file_uploader(
     key="pdf_file"
 )
 
-st.markdown("### 2. Upload main table")
+st.markdown("### Upload main table")
 main_file = st.file_uploader(
     "Main table file",
     type=["csv", "tsv", "txt", "xlsx", "xls"],
@@ -726,7 +707,7 @@ main_file = st.file_uploader(
     key="main_file"
 )
 
-st.markdown("### 3. Enter the 2 PDF columns to extract")
+st.markdown("### Enter the 2 PDF columns to extract")
 columns_input = st.text_area(
     "Exactly 2 columns, one per line",
     value="item code\nunit price w/o VAT",
@@ -734,11 +715,13 @@ columns_input = st.text_area(
     placeholder="Example:\nitem code\nunit price w/o VAT",
 )
 
-run = st.button("Run full process", type="primary")
+run = st.button("Price check", type="primary")
 
 if run:
+    api_key = get_api_key()
+
     if not api_key:
-        st.error("Please provide your OpenAI API key in the sidebar or in Streamlit secrets.")
+        st.error("OPENAI_API_KEY is missing from Streamlit secrets.")
         st.stop()
 
     if pdf_file is None:
@@ -751,17 +734,12 @@ if run:
 
     columns = [line.strip() for line in columns_input.splitlines() if line.strip()]
     if len(columns) != 2:
-        st.error("Please provide exactly 2 column names. The matcher needs a code column and a value column.")
+        st.error("Please provide exactly 2 column names.")
         st.stop()
 
     client = OpenAI(api_key=api_key)
 
     try:
-        # ---------------------------
-        # Step 1: extract from PDF
-        # ---------------------------
-        st.markdown("### 4. Extracted rows from PDF")
-
         file_bytes = pdf_file.read()
         text, table_preview = extract_text_and_tables_from_pdf(file_bytes)
 
@@ -770,7 +748,6 @@ if run:
                 client=client,
                 model=model,
                 columns=columns,
-                include_filename=include_filename,
                 filename=pdf_file.name,
                 text=text,
                 table_preview=table_preview,
@@ -788,7 +765,6 @@ if run:
                 client=client,
                 model=model,
                 columns=columns,
-                include_filename=include_filename,
                 filename=pdf_file.name,
                 images_base64=images_base64,
             )
@@ -799,57 +775,24 @@ if run:
 
         extracted_df = pd.DataFrame(extracted_rows)
 
-        desired_columns = columns[:]
-        if include_filename:
-            desired_columns = ["source_file"] + desired_columns
-
-        for col in desired_columns:
+        for col in columns:
             if col not in extracted_df.columns:
                 extracted_df[col] = ""
 
-        extracted_df = extracted_df[desired_columns]
-        st.dataframe(extracted_df, use_container_width=True)
+        extracted_df = extracted_df[columns]
 
-        # plain 2-col no-header TSV for visibility
         reference_df = build_reference_df_from_extracted(
             extracted_df=extracted_df,
             code_column=columns[0],
             value_column=columns[1]
         )
 
-        st.markdown("### 5. Auto-generated reference table (no header)")
-        reference_tsv_no_header = dataframe_to_tsv(reference_df, header=False)
-        st.text_area(
-            "Reference table generated from PDF extraction",
-            value=reference_tsv_no_header,
-            height=220
-        )
-
-        # ---------------------------
-        # Step 2: read main table
-        # ---------------------------
         main_df = read_main_table(main_file)
-
-        # ---------------------------
-        # Step 3: match
-        # ---------------------------
         result_df = build_results(main_df, reference_df, tolerance=tolerance)
 
-        st.markdown("### 6. Match result")
+        st.markdown("### Match result")
         styled_result = result_df.style.apply(highlight_problem_rows, axis=1)
         st.dataframe(styled_result, use_container_width=True)
-
-        result_tsv = dataframe_to_tsv(result_df, header=True)
-
-        st.markdown("### 7. Download / copy result")
-        st.text_area("Result TSV", value=result_tsv, height=260)
-
-        st.download_button(
-            "Download result TSV",
-            data=result_tsv.encode("utf-8"),
-            file_name="invoice_price_match_result.tsv",
-            mime="text/tab-separated-values"
-        )
 
     except Exception as e:
         st.error(str(e))
