@@ -779,7 +779,7 @@ def build_jira_autofill_df(
     la_values = [str(v).strip() for v in ticket_df["LA#"].fillna("").tolist() if str(v).strip()]
     la_joined = ", ".join(la_values)
 
-    pd_in_favor_or_loss = "Loss"
+    pd_in_favor_or_loss = "PD - Loss"
 
     jira_df = pd.DataFrame(
         [
