@@ -17,6 +17,23 @@ st.set_page_config(page_title="🐶 Price Check", page_icon="🐶", layout="wide
 
 
 # ---------------------------
+# Constants
+# ---------------------------
+
+READ_ATTEMPTS = [
+    ("utf-16", "\t"), ("utf-8", "\t"), ("utf-8-sig", "\t"), ("latin1", "\t"),
+    ("utf-16", ","), ("utf-8", ","), ("utf-8-sig", ","), ("latin1", ","),
+    ("utf-16", ";"), ("utf-8", ";"), ("utf-8-sig", ";"), ("latin1", ";"),
+]
+
+NUMERIC_KEYWORDS = {
+    "price", "amount", "unit price", "total", "sum", "qty", "quantity", "cost",
+    "value", "vat", "eur", "net", "gross", "number", "preis", "betrag",
+    "menge", "anzahl", "einzelpreis", "unit",
+}
+
+
+# ---------------------------
 # Styling
 # ---------------------------
 
@@ -62,54 +79,55 @@ def get_api_key() -> str:
 
 
 def normalize_code(value) -> str:
+    return "" if value is None else str(value).strip()
+
+
+def clean_numeric_text(value) -> str:
     if value is None:
         return ""
-    return str(value).strip()
-
-
-def parse_eu_number(value) -> Optional[float]:
-    if value is None:
-        return None
 
     s = str(value).strip()
     if not s:
-        return None
+        return ""
 
     s = s.replace("\u00a0", " ")
-    s = s.replace("€", "")
     s = re.sub(r"\bEUR\b", "", s, flags=re.IGNORECASE)
-    s = s.strip().replace(" ", "")
+    s = s.replace("€", "").replace(" ", "")
     s = re.sub(r"[^0-9,.\-]", "", s)
 
-    if not s:
-        return None
+    if not re.search(r"\d", s):
+        return ""
 
     if "," in s and "." in s:
         if s.rfind(",") > s.rfind("."):
-            s = s.replace(".", "")
-            s = s.replace(",", ".")
+            s = s.replace(".", "").replace(",", ".")
         else:
             s = s.replace(",", "")
-    elif "," in s:
+    elif "," in s and "." not in s:
         parts = s.split(",")
-        if len(parts) == 2:
-            s = s.replace(",", ".")
-        else:
-            s = s.replace(",", "")
-    elif "." in s:
+        s = s.replace(",", ".") if len(parts) == 2 else s.replace(",", "")
+    elif s.count(".") > 1:
         parts = s.split(".")
-        if len(parts) > 2:
-            decimal_part = parts[-1]
-            int_part = "".join(parts[:-1])
-            if len(decimal_part) in (1, 2, 3):
-                s = f"{int_part}.{decimal_part}"
-            else:
-                s = s.replace(".", "")
+        decimal_part = parts[-1]
+        int_part = "".join(parts[:-1])
+        s = f"{int_part}.{decimal_part}" if len(decimal_part) in (1, 2, 3) else int_part + decimal_part
 
+    return s
+
+
+def parse_eu_number(value) -> Optional[float]:
+    s = clean_numeric_text(value)
+    if not s:
+        return None
     try:
         return float(s)
     except Exception:
         return None
+
+
+def normalize_european_number(value) -> str:
+    num = parse_eu_number(value)
+    return "" if num is None else str(num).replace(".", ",")
 
 
 def format_eu_number(value: Optional[float], decimals: int = 2) -> str:
@@ -118,98 +136,27 @@ def format_eu_number(value: Optional[float], decimals: int = 2) -> str:
     return f"{value:.{decimals}f}".replace(".", ",")
 
 
-def normalize_european_number(value: str) -> str:
-    if value is None:
-        return ""
-
-    s = str(value).strip()
-    if not s:
-        return ""
-
-    s = s.replace("\u00a0", " ")
-    s = re.sub(r"\bEUR\b", "", s, flags=re.IGNORECASE)
-    s = s.replace("€", "").strip()
-    s = s.replace(" ", "")
-    s = re.sub(r"[^0-9,.\-]", "", s)
-
-    if not s or not re.search(r"\d", s):
-        return ""
-
-    if "," in s and "." in s:
-        if s.rfind(",") > s.rfind("."):
-            s = s.replace(".", "")
-            return s
-        s = s.replace(",", "")
-        s = s.replace(".", ",")
-        return s
-
-    if "," in s:
-        parts = s.split(",")
-        if len(parts) == 2 and len(parts[1]) in (1, 2, 3):
-            return s
-        return s.replace(",", "")
-
-    if "." in s:
-        parts = s.split(".")
-        if len(parts) == 2 and len(parts[1]) in (1, 2, 3):
-            return s.replace(".", ",")
-        if len(parts) > 2:
-            decimal_part = parts[-1]
-            int_part = "".join(parts[:-1])
-            if len(decimal_part) in (1, 2, 3):
-                return f"{int_part},{decimal_part}"
-            return "".join(parts)
-
-    return s
-
-
 def sanitize_cell(value: str, numeric: bool) -> str:
     if value is None:
         return ""
-
     text = str(value).strip()
     if not text:
         return ""
-
-    if numeric:
-        return normalize_european_number(text)
-
-    return re.sub(r"\s+", " ", text).strip()
+    return normalize_european_number(text) if numeric else re.sub(r"\s+", " ", text).strip()
 
 
 def looks_numeric_column(column_name: str) -> bool:
     name = column_name.strip().lower()
-    numeric_keywords = [
-        "price",
-        "amount",
-        "unit price",
-        "total",
-        "sum",
-        "qty",
-        "quantity",
-        "cost",
-        "value",
-        "vat",
-        "eur",
-        "net",
-        "gross",
-        "number",
-        "preis",
-        "betrag",
-        "menge",
-        "anzahl",
-        "einzelpreis",
-        "unit",
-    ]
-    return any(keyword in name for keyword in numeric_keywords)
+    return any(keyword in name for keyword in NUMERIC_KEYWORDS)
 
 
 def map_matched_on(formula: str) -> str:
-    if formula in ("F", "D*F"):
-        return "List Price"
-    if formula in ("G", "D*G"):
-        return "Discounted Price"
-    return ""
+    return {
+        "F": "List Price",
+        "D*F": "List Price",
+        "G": "Discounted Price",
+        "D*G": "Discounted Price",
+    }.get(formula, "")
 
 
 def highlight_comparison_rows(row):
@@ -219,16 +166,12 @@ def highlight_comparison_rows(row):
 
     if no_match:
         return ["background-color: #ffefef"] * len(row)
-
     if pd.isna(ref_num) or pd.isna(closest_num):
         return [""] * len(row)
-
     if ref_num > closest_num:
         return ["background-color: #ffefef"] * len(row)
-
     if ref_num < closest_num:
         return ["background-color: #effbef"] * len(row)
-
     return [""] * len(row)
 
 
@@ -264,13 +207,30 @@ def render_copy_button(text_to_copy: str, button_label: str = "Copy to clipboard
     components.html(html, height=60)
 
 
+def read_table(uploaded_file, label="file") -> pd.DataFrame:
+    name = uploaded_file.name.lower()
+
+    if name.endswith((".xlsx", ".xls")):
+        return pd.read_excel(uploaded_file)
+
+    raw = uploaded_file.read()
+    last_error = None
+
+    for encoding, sep in READ_ATTEMPTS:
+        try:
+            return pd.read_csv(io.BytesIO(raw), encoding=encoding, sep=sep)
+        except Exception as e:
+            last_error = e
+
+    raise ValueError(f"Could not read {label}. Last error: {last_error}")
+
+
 # ---------------------------
-# Part 1: PDF extraction
+# PDF extraction
 # ---------------------------
 
 def extract_text_and_tables_from_pdf(file_bytes: bytes) -> Tuple[str, str]:
-    all_text: List[str] = []
-    all_tables: List[str] = []
+    all_text, all_tables = [], []
 
     with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
         for page_num, page in enumerate(pdf.pages, start=1):
@@ -305,37 +265,35 @@ def extract_text_and_tables_from_pdf(file_bytes: bytes) -> Tuple[str, str]:
     return "\n".join(all_text), "\n".join(all_tables)
 
 
-def render_pdf_pages_to_base64_png(
-    file_bytes: bytes,
-    max_pages: int = 8,
-    zoom: float = 2.0
-) -> List[str]:
+def render_pdf_pages_to_base64_png(file_bytes: bytes, max_pages: int = 8, zoom: float = 2.0) -> List[str]:
     doc = fitz.open(stream=file_bytes, filetype="pdf")
     images_base64 = []
 
-    page_count = min(len(doc), max_pages)
-    for i in range(page_count):
+    for i in range(min(len(doc), max_pages)):
         page = doc.load_page(i)
-        mat = fitz.Matrix(zoom, zoom)
-        pix = page.get_pixmap(matrix=mat, alpha=False)
-        img_bytes = pix.tobytes("png")
-        images_base64.append(base64.b64encode(img_bytes).decode("utf-8"))
+        pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
+        images_base64.append(base64.b64encode(pix.tobytes("png")).decode("utf-8"))
 
     doc.close()
     return images_base64
 
 
-def build_text_prompt(columns: List[str], filename: str, text: str, table_preview: str) -> str:
-    columns_text = ", ".join(columns)
-
-    return f"""
-You are extracting structured row-based data from a PDF.
+def build_prompt(
+    columns: List[str],
+    filename: str,
+    text: str = "",
+    table_preview: str = "",
+    image_mode: bool = False,
+) -> str:
+    source_type = "scanned PDF page images" if image_mode else "PDF text"
+    prompt = f"""
+You are extracting structured row-based data from {source_type}.
 
 Requested columns:
-{columns_text}
+{", ".join(columns)}
 
 Rules:
-1. Return only rows that you can infer from the PDF content.
+1. Return only rows that are actually visible/inferable from the document.
 2. Match the requested columns as closely as possible, even if the PDF uses slightly different labels.
 3. Do not invent values.
 4. If a value is missing for a row, return an empty string for that field.
@@ -345,37 +303,12 @@ Rules:
 
 Source filename:
 {filename}
-
-PDF text:
-{text[:8000]}
-
-Extracted table preview:
-{table_preview[:6000]}
 """.strip()
 
+    if not image_mode:
+        prompt += f"\n\nPDF text:\n{text[:8000]}\n\nExtracted table preview:\n{table_preview[:6000]}"
 
-def build_image_prompt(columns: List[str], filename: str) -> str:
-    columns_text = ", ".join(columns)
-
-    return f"""
-You are extracting structured row-based data from scanned PDF page images.
-
-Requested columns:
-{columns_text}
-
-Rules:
-1. Read the uploaded page images carefully.
-2. Return only rows that are actually visible in the document.
-3. Match the requested columns as closely as possible, even if the document uses slightly different labels.
-4. Do not invent values.
-5. If a value is missing for a row, return an empty string for that field.
-6. Return only JSON matching the required schema.
-7. Prices and amounts should be returned as plain numeric strings without currency symbols.
-8. For codes / IDs / article numbers, return only the relevant code value.
-
-Source filename:
-{filename}
-""".strip()
+    return prompt
 
 
 def build_schema(columns: List[str]) -> Dict:
@@ -398,16 +331,16 @@ def build_schema(columns: List[str]) -> Dict:
 
 
 def clean_rows(rows: List[Dict[str, str]], columns: List[str]) -> List[Dict[str, str]]:
-    cleaned_rows: List[Dict[str, str]] = []
+    cleaned_rows = []
 
     for row in rows:
         if not isinstance(row, dict):
             continue
 
-        cleaned: Dict[str, str] = {}
-        for col in columns:
-            value = row.get(col, "")
-            cleaned[col] = sanitize_cell(value, looks_numeric_column(col))
+        cleaned = {
+            col: sanitize_cell(row.get(col, ""), looks_numeric_column(col))
+            for col in columns
+        }
 
         if any(str(v).strip() for v in cleaned.values()):
             cleaned_rows.append(cleaned)
@@ -415,81 +348,56 @@ def clean_rows(rows: List[Dict[str, str]], columns: List[str]) -> List[Dict[str,
     return cleaned_rows
 
 
-def extract_rows_from_text_with_openai(
+def extract_rows_with_openai(
     client: OpenAI,
     model: str,
     columns: List[str],
     filename: str,
-    text: str,
-    table_preview: str
+    text: str = "",
+    table_preview: str = "",
+    images_base64: Optional[List[str]] = None,
 ) -> List[Dict[str, str]]:
-    prompt = build_text_prompt(columns, filename, text, table_preview)
     schema = build_schema(columns)
 
-    response = client.responses.create(
-        model=model,
-        instructions="You extract structured data from PDF text and return only valid JSON.",
-        input=prompt,
-        text={
-            "format": {
-                "type": "json_schema",
-                "name": "pdf_rows_text",
-                "schema": schema,
-                "strict": True,
-            }
-        },
-    )
+    if images_base64:
+        content = [{"type": "input_text", "text": build_prompt(columns, filename, image_mode=True)}]
+        content += [
+            {"type": "input_image", "image_url": f"data:image/png;base64,{img_b64}"}
+            for img_b64 in images_base64
+        ]
+        response = client.responses.create(
+            model=model,
+            input=[{"role": "user", "content": content}],
+            text={
+                "format": {
+                    "type": "json_schema",
+                    "name": "pdf_rows",
+                    "schema": schema,
+                    "strict": True,
+                }
+            },
+        )
+    else:
+        response = client.responses.create(
+            model=model,
+            instructions="You extract structured data from PDF text and return only valid JSON.",
+            input=build_prompt(columns, filename, text, table_preview, image_mode=False),
+            text={
+                "format": {
+                    "type": "json_schema",
+                    "name": "pdf_rows",
+                    "schema": schema,
+                    "strict": True,
+                }
+            },
+        )
 
     raw = (getattr(response, "output_text", "") or "").strip()
     if not raw:
-        raise ValueError("The model returned an empty response for text extraction.")
+        raise ValueError("The model returned an empty response.")
 
     data = json.loads(raw)
     rows = data.get("rows", [])
-
-    if not isinstance(rows, list):
-        raise ValueError("The model response does not contain a valid 'rows' list.")
-
-    return clean_rows(rows, columns)
-
-
-def extract_rows_from_images_with_openai(
-    client: OpenAI,
-    model: str,
-    columns: List[str],
-    filename: str,
-    images_base64: List[str]
-) -> List[Dict[str, str]]:
-    schema = build_schema(columns)
-    prompt = build_image_prompt(columns, filename)
-
-    content = [{"type": "input_text", "text": prompt}]
-    for img_b64 in images_base64:
-        content.append({
-            "type": "input_image",
-            "image_url": f"data:image/png;base64,{img_b64}"
-        })
-
-    response = client.responses.create(
-        model=model,
-        input=[{"role": "user", "content": content}],
-        text={
-            "format": {
-                "type": "json_schema",
-                "name": "pdf_rows_image",
-                "schema": schema,
-                "strict": True,
-            }
-        },
-    )
-
-    raw = (getattr(response, "output_text", "") or "").strip()
-    if not raw:
-        raise ValueError("The model returned an empty response for image extraction.")
-
-    data = json.loads(raw)
-    rows = data.get("rows", [])
-
     if not isinstance(rows, list):
         raise ValueError("The model response does not contain a valid 'rows' list.")
 
@@ -497,82 +405,8 @@ def extract_rows_from_images_with_openai(
 
 
 # ---------------------------
-# Part 2: Main table matching
+# Matching
 # ---------------------------
-
-def read_main_table(uploaded_file) -> pd.DataFrame:
-    name = uploaded_file.name.lower()
-
-    if name.endswith(".xlsx") or name.endswith(".xls"):
-        return pd.read_excel(uploaded_file)
-
-    raw = uploaded_file.read()
-
-    attempts = [
-        {"encoding": "utf-16", "sep": "\t"},
-        {"encoding": "utf-8", "sep": "\t"},
-        {"encoding": "utf-8-sig", "sep": "\t"},
-        {"encoding": "latin1", "sep": "\t"},
-        {"encoding": "utf-16", "sep": ","},
-        {"encoding": "utf-8", "sep": ","},
-        {"encoding": "utf-8-sig", "sep": ","},
-        {"encoding": "latin1", "sep": ","},
-        {"encoding": "utf-16", "sep": ";"},
-        {"encoding": "utf-8", "sep": ";"},
-        {"encoding": "utf-8-sig", "sep": ";"},
-        {"encoding": "latin1", "sep": ";"},
-    ]
-
-    last_error = None
-    for attempt in attempts:
-        try:
-            return pd.read_csv(
-                io.BytesIO(raw),
-                encoding=attempt["encoding"],
-                sep=attempt["sep"]
-            )
-        except Exception as e:
-            last_error = e
-
-    raise ValueError(f"Could not read main file. Last error: {last_error}")
-
-
-def read_orders_last_90_days(uploaded_file) -> pd.DataFrame:
-    name = uploaded_file.name.lower()
-
-    if name.endswith(".xlsx") or name.endswith(".xls"):
-        return pd.read_excel(uploaded_file)
-
-    raw = uploaded_file.read()
-
-    attempts = [
-        {"encoding": "utf-16", "sep": "\t"},
-        {"encoding": "utf-8", "sep": "\t"},
-        {"encoding": "utf-8-sig", "sep": "\t"},
-        {"encoding": "latin1", "sep": "\t"},
-        {"encoding": "utf-16", "sep": ","},
-        {"encoding": "utf-8", "sep": ","},
-        {"encoding": "utf-8-sig", "sep": ","},
-        {"encoding": "latin1", "sep": ","},
-        {"encoding": "utf-16", "sep": ";"},
-        {"encoding": "utf-8", "sep": ";"},
-        {"encoding": "utf-8-sig", "sep": ";"},
-        {"encoding": "latin1", "sep": ";"},
-    ]
-
-    last_error = None
-    for attempt in attempts:
-        try:
-            return pd.read_csv(
-                io.BytesIO(raw),
-                encoding=attempt["encoding"],
-                sep=attempt["sep"]
-            )
-        except Exception as e:
-            last_error = e
-
-    raise ValueError(f"Could not read Orders last 90 days file. Last error: {last_error}")
-
 
 def find_best_match(
     target: float,
@@ -582,7 +416,6 @@ def find_best_match(
     tolerance: float
 ):
     candidates = []
-
     if f is not None:
         candidates.append(("F", f))
     if g is not None:
@@ -614,15 +447,13 @@ def find_best_match(
             }
 
     closest_formula, closest_value = min(candidates, key=lambda x: abs(x[1] - target))
-    diff = abs(closest_value - target)
-
     return {
         "exact": False,
         "exact_formula": "",
         "exact_value": None,
         "closest_formula": closest_formula,
         "closest_value": closest_value,
-        "difference": diff,
+        "difference": abs(closest_value - target),
     }
 
 
@@ -633,16 +464,9 @@ def build_reference_df_from_extracted(
 ) -> pd.DataFrame:
     ref_df = extracted_df[[code_column, value_column]].copy()
     ref_df.columns = ["ref_code", "ref_value"]
-
     ref_df["ref_code"] = ref_df["ref_code"].apply(normalize_code)
     ref_df["ref_value"] = ref_df["ref_value"].astype(str).str.strip()
-
-    ref_df = ref_df[
-        (ref_df["ref_code"] != "") |
-        (ref_df["ref_value"] != "")
-    ].copy()
-
-    return ref_df
+    return ref_df[(ref_df["ref_code"] != "") | (ref_df["ref_value"] != "")].copy()
 
 
 def build_results(main_df: pd.DataFrame, ref_df: pd.DataFrame, tolerance: float) -> pd.DataFrame:
@@ -651,11 +475,7 @@ def build_results(main_df: pd.DataFrame, ref_df: pd.DataFrame, tolerance: float)
     if df.shape[1] < 7:
         raise ValueError("Main table must contain at least 7 columns so A, B, D, F, G exist.")
 
-    col_a = df.columns[0]
-    col_b = df.columns[1]
-    col_d = df.columns[3]
-    col_f = df.columns[5]
-    col_g = df.columns[6]
+    col_a, col_b, col_d, col_f, col_g = df.columns[0], df.columns[1], df.columns[3], df.columns[5], df.columns[6]
 
     df["_A_code"] = df[col_a].apply(normalize_code)
     df["_B_code"] = df[col_b].apply(normalize_code)
@@ -670,9 +490,10 @@ def build_results(main_df: pd.DataFrame, ref_df: pd.DataFrame, tolerance: float)
         ref_value_raw = ref_row["ref_value"]
         ref_value_num = parse_eu_number(ref_value_raw)
 
-        matches_a = df[df["_A_code"] == ref_code]
-        matches_b = df[df["_B_code"] == ref_code]
-        matches = pd.concat([matches_a, matches_b]).drop_duplicates()
+        matches = pd.concat([
+            df[df["_A_code"] == ref_code],
+            df[df["_B_code"] == ref_code]
+        ]).drop_duplicates()
 
         if matches.empty:
             results.append({
@@ -693,12 +514,19 @@ def build_results(main_df: pd.DataFrame, ref_df: pd.DataFrame, tolerance: float)
             })
             continue
 
-        best_row_result = None
-        best_main_row = None
+        best_row_result, best_main_row = None, None
 
         for _, main_row in matches.iterrows():
-            if ref_value_num is None:
-                comparison = {
+            comparison = (
+                find_best_match(
+                    target=ref_value_num,
+                    d=main_row["_D_num"],
+                    f=main_row["_F_num"],
+                    g=main_row["_G_num"],
+                    tolerance=tolerance
+                )
+                if ref_value_num is not None else
+                {
                     "exact": False,
                     "exact_formula": "",
                     "exact_value": None,
@@ -706,29 +534,20 @@ def build_results(main_df: pd.DataFrame, ref_df: pd.DataFrame, tolerance: float)
                     "closest_value": None,
                     "difference": None,
                 }
-            else:
-                comparison = find_best_match(
-                    target=ref_value_num,
-                    d=main_row["_D_num"],
-                    f=main_row["_F_num"],
-                    g=main_row["_G_num"],
-                    tolerance=tolerance
-                )
+            )
 
             if best_row_result is None:
-                best_row_result = comparison
-                best_main_row = main_row
-            else:
-                current_diff = comparison["difference"]
-                best_diff = best_row_result["difference"]
+                best_row_result, best_main_row = comparison, main_row
+                continue
 
-                if comparison["exact"] and not best_row_result["exact"]:
-                    best_row_result = comparison
-                    best_main_row = main_row
-                elif comparison["exact"] == best_row_result["exact"]:
-                    if current_diff is not None and best_diff is not None and current_diff < best_diff:
-                        best_row_result = comparison
-                        best_main_row = main_row
+            current_diff = comparison["difference"]
+            best_diff = best_row_result["difference"]
+
+            if comparison["exact"] and not best_row_result["exact"]:
+                best_row_result, best_main_row = comparison, main_row
+            elif comparison["exact"] == best_row_result["exact"]:
+                if current_diff is not None and best_diff is not None and current_diff < best_diff:
+                    best_row_result, best_main_row = comparison, main_row
 
         results.append({
             "reference_code": ref_code,
@@ -736,7 +555,10 @@ def build_results(main_df: pd.DataFrame, ref_df: pd.DataFrame, tolerance: float)
             "exact_match": "✓" if best_row_result["exact"] else "",
             "matched_on": map_matched_on(best_row_result["closest_formula"]),
             "closest_value": format_eu_number(best_row_result["closest_value"]),
-            "difference": format_eu_number(best_row_result["difference"]) if best_row_result["difference"] is not None else "",
+            "difference": (
+                format_eu_number(best_row_result["difference"])
+                if best_row_result["difference"] is not None else ""
+            ),
             "LA#": normalize_code(best_main_row[col_a]),
             "Supplier ID": normalize_code(best_main_row[col_b]),
             "Quantity": format_eu_number(best_main_row["_D_num"]) if best_main_row["_D_num"] is not None else "",
@@ -749,6 +571,10 @@ def build_results(main_df: pd.DataFrame, ref_df: pd.DataFrame, tolerance: float)
 
     return pd.DataFrame(results)
 
+
+# ---------------------------
+# JIRA
+# ---------------------------
 
 def build_jira_autofill_df(
     orders_df: pd.DataFrame,
@@ -776,27 +602,20 @@ def build_jira_autofill_df(
     else:
         la_amount = "Multiple LA"
 
-    la_values = [str(v).strip() for v in ticket_df["LA#"].fillna("").tolist() if str(v).strip()]
-    la_joined = ", ".join(la_values)
-
-    pd_in_favor_or_loss = "PD - Loss"
-
-    jira_df = pd.DataFrame(
-        [
-            {
-                "Shipping FC": shipping_fc,
-                "Purchase Order": purchase_order,
-                "Purchasing Organization": purchasing_org,
-                "Category": "Wrong Price Supplier",
-                "Supplier 1": supplier_1,
-                "LA Amount": la_amount,
-                "LA": la_joined,
-                "PD: In favor or loss": pd_in_favor_or_loss,
-            }
-        ]
+    la_joined = ", ".join(
+        str(v).strip() for v in ticket_df["LA#"].fillna("").tolist() if str(v).strip()
     )
 
-    return jira_df
+    return pd.DataFrame([{
+        "Shipping FC": shipping_fc,
+        "Purchase Order": purchase_order,
+        "Purchasing Organization": purchasing_org,
+        "Category": "Wrong Price Supplier",
+        "Supplier 1": supplier_1,
+        "LA Amount": la_amount,
+        "LA": la_joined,
+        "PD: In favor or loss": "PD - Loss",
+    }])
 
 
 # ---------------------------
@@ -879,7 +698,7 @@ if run:
         text, table_preview = extract_text_and_tables_from_pdf(file_bytes)
 
         if text.strip() or table_preview.strip():
-            extracted_rows = extract_rows_from_text_with_openai(
+            extracted_rows = extract_rows_with_openai(
                 client=client,
                 model=model,
                 columns=columns,
@@ -888,20 +707,13 @@ if run:
                 table_preview=table_preview,
             )
         else:
-            st.info(
-                f"{pdf_file.name}: No readable text layer found. Switching to image-based extraction."
-            )
-            images_base64 = render_pdf_pages_to_base64_png(
-                file_bytes,
-                max_pages=max_pages
-            )
-
-            extracted_rows = extract_rows_from_images_with_openai(
+            st.info(f"{pdf_file.name}: No readable text layer found. Switching to image-based extraction.")
+            extracted_rows = extract_rows_with_openai(
                 client=client,
                 model=model,
                 columns=columns,
                 filename=pdf_file.name,
-                images_base64=images_base64,
+                images_base64=render_pdf_pages_to_base64_png(file_bytes, max_pages=max_pages),
             )
 
         if not extracted_rows:
@@ -909,20 +721,18 @@ if run:
             st.stop()
 
         extracted_df = pd.DataFrame(extracted_rows)
-
         for col in columns:
             if col not in extracted_df.columns:
                 extracted_df[col] = ""
-
         extracted_df = extracted_df[columns]
 
         reference_df = build_reference_df_from_extracted(
             extracted_df=extracted_df,
             code_column=columns[0],
-            value_column=columns[1]
+            value_column=columns[1],
         )
 
-        main_df = read_main_table(main_file)
+        main_df = read_table(main_file, "main file")
         result_df = build_results(main_df, reference_df, tolerance=tolerance)
 
         result_df["_ref_num"] = pd.to_numeric(result_df["_ref_num"], errors="coerce")
@@ -935,7 +745,6 @@ if run:
             & result_df["_closest_num"].notna()
             & (result_df["_ref_num"] > result_df["_closest_num"])
         )
-
         ticket_df = result_df.loc[ticket_mask].copy()
 
         st.session_state.price_check_ready = True
@@ -949,20 +758,6 @@ if run:
 if st.session_state.price_check_ready:
     result_df = st.session_state.price_check_result_df
     ticket_df = st.session_state.price_check_ticket_df
-
-    visible_columns = [
-        "reference_code",
-        "reference_value",
-        "exact_match",
-        "matched_on",
-        "closest_value",
-        "difference",
-        "LA#",
-        "Supplier ID",
-        "Quantity",
-        "list_price",
-        "discounted_price",
-    ]
 
     st.markdown("### Match result")
     styled_result = result_df.style.apply(highlight_comparison_rows, axis=1)
@@ -985,20 +780,18 @@ if st.session_state.price_check_ready:
 
         if orders_last_90_file is not None:
             try:
-                orders_last_90_df = read_orders_last_90_days(orders_last_90_file)
-
+                orders_last_90_df = read_table(orders_last_90_file, "Orders last 90 days file")
                 jira_autofill_df = build_jira_autofill_df(
                     orders_df=orders_last_90_df,
                     ticket_df=ticket_df,
                     result_df=result_df,
                 )
-                first_row = orders_last_90_df.iloc[0]
 
+                first_row = orders_last_90_df.iloc[0]
                 supplier_value = "" if pd.isna(first_row.iloc[1]) else str(first_row.iloc[1]).strip()
-                issue_type = "Matina" if "matina" in supplier_value.lower() else "Zooplus"
-                
                 vendor_manager = "" if pd.isna(first_row.iloc[2]) else str(first_row.iloc[2]).strip()
-                
+                issue_type = "Matina" if "matina" in supplier_value.lower() else "Zooplus"
+
                 if issue_type == "Matina":
                     st.markdown(
                         f"""
@@ -1039,7 +832,10 @@ if st.session_state.price_check_ready:
                     key="jira_autofill_editor"
                 )
 
-                clipboard_text = dataframe_to_tsv_without_headers(edited_jira_df)
-                render_copy_button(clipboard_text, "Copy JIRA autofill to clipboard")
+                render_copy_button(
+                    dataframe_to_tsv_without_headers(edited_jira_df),
+                    "Copy JIRA autofill to clipboard"
+                )
+
             except Exception as e:
                 st.error(str(e))
