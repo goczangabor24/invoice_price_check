@@ -1022,10 +1022,9 @@ if st.session_state.price_check_ready:
                     st.markdown(
                         f"""
                         <div style="
-                            font-size:22px;
+                            font-size:24px;
                             font-weight:600;
                         ">
-                            Don't forget to select Issue Type: {issue_type}<br>
                             Vendor manager: {vendor_manager}
                         </div>
                         """,
