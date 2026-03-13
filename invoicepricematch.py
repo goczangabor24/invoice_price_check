@@ -1001,7 +1001,7 @@ if st.session_state.price_check_ready:
                 vendor_manager = "" if pd.isna(first_row.iloc[2]) else str(first_row.iloc[2]).strip()
 
                 st.markdown(
-                    f"Don't forget to select Issue Type: **{issue_type}**"
+                    f"## Don't forget to select Issue Type: **{issue_type}**\n"
                     f"Vendor Manager: **{vendor_manager}**"
                 )
 
