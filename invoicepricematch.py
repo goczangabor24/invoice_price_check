@@ -1001,6 +1001,11 @@ if st.session_state.price_check_ready:
                 vendor_manager = "" if pd.isna(first_row.iloc[2]) else str(first_row.iloc[2]).strip()
 
                 st.markdown("### JIRA Ticket Autofill")
+                st.markdown(
+                    f" Don't forget to select"
+                    f" Issue Type: **{issue_type}**"
+                    f" Vendor Manager: **{vendor_manager}**"
+                )
                 edited_jira_df = st.data_editor(
                     jira_autofill_df,
                     use_container_width=True,
@@ -1012,9 +1017,3 @@ if st.session_state.price_check_ready:
                 render_copy_button(clipboard_text, "Copy JIRA autofill to clipboard")
             except Exception as e:
                 st.error(str(e))
-
-                st.markdown(
-                    f" Don't forget to select"
-                    f" Issue Type: **{issue_type}**"
-                    f" Vendor Manager: **{vendor_manager}**"
-                )
