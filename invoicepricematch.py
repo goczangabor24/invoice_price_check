@@ -1000,29 +1000,29 @@ if st.session_state.price_check_ready:
 
                 vendor_manager = "" if pd.isna(first_row.iloc[2]) else str(first_row.iloc[2]).strip()
 
-            if issue_type == "Matina":
-                st.markdown(
-                    f"""
-                    <div style="
-                        background-color:#fff3cd;
-                        border:1px solid #ffe69c;
-                        color:#664d03;
-                        padding:16px;
-                        border-radius:10px;
-                        font-size:22px;
-                        font-weight:600;
-                        margin-bottom:12px;
-                    ">
-                        Don't forget to seledt Issue Type: {issue_type}<br>
-                    </div>
-                    """,
-                    unsafe_allow_html=True
-                )
-            else:   
-                st.markdown(
-                    f" Don't forget to select"
-                    f" Issue Type: **Zooplus**"
-                )
+                    if issue_type == "Matina":
+                        st.markdown(
+                            f"""
+                            <div style="
+                                background-color:#fff3cd;
+                                border:1px solid #ffe69c;
+                                color:#664d03;
+                                padding:16px;
+                                border-radius:10px;
+                                font-size:22px;
+                                font-weight:600;
+                                margin-bottom:12px;
+                            ">
+                                Don't forget to select Issue Type: {issue_type}<br>
+                            </div>
+                            """,
+                            unsafe_allow_html=True
+                        )
+                    else:   
+                        st.markdown(
+                            f" Don't forget to select"
+                            f" Issue Type: **Zooplus**"
+                        )
                 st.markdown(
                     f" Vendor Manager: **{vendor_manager}**"
                     )
