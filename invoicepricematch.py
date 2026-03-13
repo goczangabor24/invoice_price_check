@@ -779,7 +779,7 @@ def build_jira_autofill_df(
     la_values = [str(v).strip() for v in ticket_df["LA#"].fillna("").tolist() if str(v).strip()]
     la_joined = ", ".join(la_values)
 
-    pd_in_favor_or_loss = "PD - Loss"
+    pd_in_favor_or_loss = "Loss"
 
     jira_df = pd.DataFrame(
         [
@@ -982,56 +982,26 @@ if st.session_state.price_check_ready:
             accept_multiple_files=False,
             key="orders_last_90_file"
         )
-        
+
         if orders_last_90_file is not None:
-    try:
-        orders_last_90_df = read_orders_last_90_days(orders_last_90_file)
+            try:
+                orders_last_90_df = read_orders_last_90_days(orders_last_90_file)
 
-        jira_autofill_df = build_jira_autofill_df(
-            orders_df=orders_last_90_df,
-            ticket_df=ticket_df,
-            result_df=result_df,
-        )
+                jira_autofill_df = build_jira_autofill_df(
+                    orders_df=orders_last_90_df,
+                    ticket_df=ticket_df,
+                    result_df=result_df,
+                )
 
-        first_row = orders_last_90_df.iloc[0]
+                st.markdown("### JIRA Ticket Autofill")
+                edited_jira_df = st.data_editor(
+                    jira_autofill_df,
+                    use_container_width=True,
+                    num_rows="fixed",
+                    key="jira_autofill_editor"
+                )
 
-        supplier_value = "" if pd.isna(first_row.iloc[1]) else str(first_row.iloc[1]).strip()
-        issue_type = "Matina" if "matina" in supplier_value.lower() else "Zooplus"
-        vendor_manager = "" if pd.isna(first_row.iloc[2]) else str(first_row.iloc[2]).strip()
-
-        # Ez a rész most már a try-on belül van, így látja az issue_type-ot
-        if issue_type == "Matina":
-            st.markdown(
-                f"""
-                <div style="
-                    background-color:#fff3cd;
-                    border:1px solid #ffe69c;
-                    color:#664d03;
-                    padding:16px;
-                    border-radius:10px;
-                    font-size:22px;
-                    font-weight:600;
-                    margin-bottom:12px;
-                ">
-                    Don't forget to select Issue Type: {issue_type}<br>
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
-        else:   
-            st.markdown(f" Don't forget to select Issue Type: **Zooplus**")
-            st.markdown(f" Vendor Manager: **{vendor_manager}**")
-            st.markdown("### JIRA Ticket Autofill")
-            
-            edited_jira_df = st.data_editor(
-                jira_autofill_df,
-                use_container_width=True,
-                num_rows="fixed",
-                key="jira_autofill_editor"
-            )
-
-            clipboard_text = dataframe_to_tsv_without_headers(edited_jira_df)
-            render_copy_button(clipboard_text, "Copy JIRA autofill to clipboard")
-
-    except Exception as e:
-        st.error(f"Hiba történt: {e}")
+                clipboard_text = dataframe_to_tsv_without_headers(edited_jira_df)
+                render_copy_button(clipboard_text, "Copy JIRA autofill to clipboard")
+            except Exception as e:
+                st.error(str(e))
