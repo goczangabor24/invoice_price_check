@@ -1024,7 +1024,7 @@ if st.session_state.price_check_ready:
                     f" Issue Type: **Zooplus**"
                 )
                 st.markdown(
-                    f" f" Vendor Manager: **{vendor_manager}**"
+                    f" Vendor Manager: **{vendor_manager}**"
                     )
                 st.markdown("### JIRA Ticket Autofill")
                 
