@@ -982,7 +982,7 @@ if st.session_state.price_check_ready:
             accept_multiple_files=False,
             key="orders_last_90_file"
         )
-
+        
         if orders_last_90_file is not None:
             try:
                 orders_last_90_df = read_orders_last_90_days(orders_last_90_file)
@@ -991,6 +991,13 @@ if st.session_state.price_check_ready:
                     orders_df=orders_last_90_df,
                     ticket_df=ticket_df,
                     result_df=result_df,
+                )
+                
+                issue_type = "Matina" if "matina" in supplier_1.lower()else "Zooplus"
+                vendor_manager = "" if pd.isna(first_row.iloc[2]) else str(first_row.iloc[2]).strip()
+                st.markdown(
+                    f"**Don't forget to select Issue Type: {issue_type}** "
+                    f"**Vendor Manager: {vendor_manager}**"
                 )
 
                 st.markdown("### JIRA Ticket Autofill")
