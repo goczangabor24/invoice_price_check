@@ -779,8 +779,6 @@ def build_jira_autofill_df(
     la_values = [str(v).strip() for v in ticket_df["LA#"].fillna("").tolist() if str(v).strip()]
     la_joined = ", ".join(la_values)
 
-    # Inferred because the user did not explicitly specify the value for this field.
-    # Since this table only appears when reference_value > closest_value, "Loss" is the sensible default.
     pd_in_favor_or_loss = "Loss"
 
     jira_df = pd.DataFrame(
@@ -848,6 +846,9 @@ columns_input = st.text_area(
     height=100,
     placeholder="Example:\nitem code\nunit price w/o VAT",
 )
+
+if "price_check_ready" not in st.session_state:
+    st.session_state.price_check_ready = False
 
 run = st.button("Price check", type="primary")
 
@@ -928,25 +929,6 @@ if run:
         result_df["_closest_num"] = pd.to_numeric(result_df["_closest_num"], errors="coerce")
         result_df["_found"] = result_df["_found"].fillna(False)
 
-        visible_columns = [
-            "reference_code",
-            "reference_value",
-            "exact_match",
-            "matched_on",
-            "closest_value",
-            "difference",
-            "LA#",
-            "Supplier ID",
-            "Quantity",
-            "list_price",
-            "discounted_price",
-        ]
-
-        st.markdown("### Match result")
-        styled_result = result_df.style.apply(highlight_comparison_rows, axis=1)
-        styled_result = styled_result.hide(axis="columns", subset=["_found", "_ref_num", "_closest_num"])
-        st.dataframe(styled_result, use_container_width=True)
-
         ticket_mask = (
             result_df["_found"].eq(True)
             & result_df["_ref_num"].notna()
@@ -956,21 +938,53 @@ if run:
 
         ticket_df = result_df.loc[ticket_mask].copy()
 
-        if not ticket_df.empty:
-            st.markdown("### Please open a ticket for the following price differences:")
-            ticket_styled = ticket_df.style.apply(highlight_comparison_rows, axis=1)
-            ticket_styled = ticket_styled.hide(axis="columns", subset=["_found", "_ref_num", "_closest_num"])
-            st.dataframe(ticket_styled, use_container_width=True)
+        st.session_state.price_check_ready = True
+        st.session_state.price_check_result_df = result_df
+        st.session_state.price_check_ticket_df = ticket_df
 
-            st.markdown("### Please upload the Orders last 90 days table")
-            orders_last_90_file = st.file_uploader(
-                "Orders last 90 days table",
-                type=["csv", "tsv", "txt", "xlsx", "xls"],
-                accept_multiple_files=False,
-                key="orders_last_90_file"
-            )
+    except Exception as e:
+        st.session_state.price_check_ready = False
+        st.error(str(e))
 
-            if orders_last_90_file is not None:
+if st.session_state.price_check_ready:
+    result_df = st.session_state.price_check_result_df
+    ticket_df = st.session_state.price_check_ticket_df
+
+    visible_columns = [
+        "reference_code",
+        "reference_value",
+        "exact_match",
+        "matched_on",
+        "closest_value",
+        "difference",
+        "LA#",
+        "Supplier ID",
+        "Quantity",
+        "list_price",
+        "discounted_price",
+    ]
+
+    st.markdown("### Match result")
+    styled_result = result_df.style.apply(highlight_comparison_rows, axis=1)
+    styled_result = styled_result.hide(axis="columns", subset=["_found", "_ref_num", "_closest_num"])
+    st.dataframe(styled_result, use_container_width=True)
+
+    if not ticket_df.empty:
+        st.markdown("### Please open a ticket for the following price differences:")
+        ticket_styled = ticket_df.style.apply(highlight_comparison_rows, axis=1)
+        ticket_styled = ticket_styled.hide(axis="columns", subset=["_found", "_ref_num", "_closest_num"])
+        st.dataframe(ticket_styled, use_container_width=True)
+
+        st.markdown("### Please upload the Orders last 90 days table")
+        orders_last_90_file = st.file_uploader(
+            "Orders last 90 days table",
+            type=["csv", "tsv", "txt", "xlsx", "xls"],
+            accept_multiple_files=False,
+            key="orders_last_90_file"
+        )
+
+        if orders_last_90_file is not None:
+            try:
                 orders_last_90_df = read_orders_last_90_days(orders_last_90_file)
 
                 jira_autofill_df = build_jira_autofill_df(
@@ -989,6 +1003,5 @@ if run:
 
                 clipboard_text = dataframe_to_tsv_without_headers(edited_jira_df)
                 render_copy_button(clipboard_text, "Copy JIRA autofill to clipboard")
-
-    except Exception as e:
-        st.error(str(e))
+            except Exception as e:
+                st.error(str(e))
