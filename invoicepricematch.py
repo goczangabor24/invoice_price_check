@@ -1020,7 +1020,15 @@ if st.session_state.price_check_ready:
                     )
                 else:
                     st.markdown(
-                        f"## Don't forget to select Issue Type: {issue_type}<br>Vendor manager: {vendor_manager}",
+                        f"""
+                        <div style="
+                            font-size:22px;
+                            font-weight:600;
+                        ">
+                            Don't forget to select Issue Type: {issue_type}<br>
+                            Vendor manager: {vendor_manager}
+                        </div>
+                        """,
                         unsafe_allow_html=True,
                     )
 
