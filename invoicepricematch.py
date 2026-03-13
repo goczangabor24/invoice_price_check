@@ -1015,8 +1015,6 @@ if st.session_state.price_check_ready:
 
                 st.markdown(
                     f" Don't forget to select"
-                    
                     f" Issue Type: **{issue_type}**"
-                    
                     f" Vendor Manager: **{vendor_manager}**"
                 )
